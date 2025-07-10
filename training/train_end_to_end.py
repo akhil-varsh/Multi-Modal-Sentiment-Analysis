@@ -1,4 +1,4 @@
-"""
+"""n the forward method of EndToEndMultiModalModel class
 End-to-End Multi-Modal Sentiment Analysis Training
 Properly fine-tunes all pre-trained models (RoBERTa, Wav2Vec2, ViT) for sentiment analysis
 """
@@ -44,6 +44,7 @@ class EndToEndMultiModalModel(nn.Module):
         super().__init__()
         
         # Initialize individual models (these will be fine-tuned)
+        # The sub-models are responsible for their own preprocessing now
         self.text_model = TextSentimentModel(num_labels=num_classes)
         self.audio_model = AudioSentimentModel(num_classes=num_classes)
         self.visual_model = VisualSentimentModel(num_classes=num_classes)
@@ -68,152 +69,64 @@ class EndToEndMultiModalModel(nn.Module):
         
         self.num_classes = num_classes
         
-    def forward(self, text_inputs=None, audio_inputs=None, visual_inputs=None, 
-                text_attention_mask=None, return_attention=False):
+    def forward(self, texts=None, raw_audio=None, raw_images=None, return_attention=False):
         """
-        Forward pass through the end-to-end model
+        Forward pass through the end-to-end model.
+        This method now accepts raw data and passes it to the appropriate sub-models,
+        which handle their own preprocessing.
         
         Args:
-            text_inputs: Tokenized text inputs
-            audio_inputs: Raw audio waveforms or audio file paths  
-            visual_inputs: PIL Images or image tensors
-            text_attention_mask: Attention mask for text
-            return_attention: Whether to return attention weights
+            texts (List[str]): A list of raw text strings.
+            raw_audio (List[np.ndarray]): A list of raw audio waveforms.
+            raw_images (List[PIL.Image]): A list of raw images.
+            return_attention (bool): Whether to return attention weights.
         """
         
         modality_outputs = []
         modality_names = []
         
+        # Get the current device from the model's parameters
+        self.device = next(self.parameters()).device
+
         # Process text modality
-        if text_inputs is not None:
+        if texts is not None:
             if self.text_model.model_loaded:
-                # Use RoBERTa for text processing
-                text_logits = self.text_model.forward(text_inputs, text_attention_mask)
+                # Tokenize and process text
+                encoded = self.text_model.tokenizer(
+                    texts, truncation=True, padding=True, 
+                    return_tensors='pt', max_length=512
+                )
+                encoded = {k: v.to(self.device) for k, v in encoded.items()}
+                text_logits = self.text_model(encoded['input_ids'], encoded['attention_mask'])
                 text_probs = torch.softmax(text_logits, dim=-1)
             else:
-                # Fallback dummy prediction
-                batch_size = text_inputs.shape[0] if hasattr(text_inputs, 'shape') else 1
+                batch_size = len(texts)
                 text_probs = torch.ones(batch_size, self.num_classes, device=self.device) / self.num_classes
             
             modality_outputs.append(text_probs)
             modality_names.append('text')
         
         # Process audio modality  
-        if audio_inputs is not None:
+        if raw_audio is not None:
             if self.audio_model.use_wav2vec2:
-                # Use Wav2Vec2 for audio processing
-                if isinstance(audio_inputs, list):
-                    # If audio_inputs is a list of file paths
-                    audio_features_list = []
-                    for audio_path in audio_inputs:
-                        features = self.audio_model.extract_features_from_audio(audio_path)
-                        audio_features_list.append(features)
-                    audio_features = torch.stack(audio_features_list)
-                else:
-                    # If audio_inputs is already a tensor with batch dimension
-                    # Use the raw audio tensor and process it through Wav2Vec2
-                    batch_size = audio_inputs.shape[0]
-                    audio_features_list = []
-                    
-                    for i in range(batch_size):
-                        audio_sample = audio_inputs[i]  # Shape should be [48000] for 3 seconds
-                        
-                        # Ensure audio is long enough for Wav2Vec2
-                        if audio_sample.shape[0] < 400:  # If too short
-                            # Repeat audio to make it longer
-                            repeat_factor = (400 // audio_sample.shape[0]) + 1
-                            audio_sample = audio_sample.repeat(repeat_factor)[:400]
-                        
-                        # Process through Wav2Vec2 using the processor
-                        try:
-                            if hasattr(self.audio_model, 'processor') and hasattr(self.audio_model, 'wav2vec2'):
-                                # Process through Wav2Vec2 while maintaining gradients
-                                with torch.no_grad():
-                                    # Convert to numpy for processor (only for preprocessing)
-                                    audio_numpy = audio_sample.detach().cpu().numpy()
-                                    
-                                    inputs = self.audio_model.processor(
-                                        audio_numpy,
-                                        sampling_rate=16000,
-                                        return_tensors="pt",
-                                        padding=True
-                                    )
-                                
-                                # Extract features using Wav2Vec2 (with gradients enabled)
-                                input_values = inputs.input_values.to(self.device)
-                                input_values.requires_grad_(True)  # Enable gradients for the input
-                                
-                                wav2vec2_outputs = self.audio_model.wav2vec2(input_values)
-                                features = wav2vec2_outputs.last_hidden_state.mean(dim=1).squeeze()
-                                
-                                # Ensure proper shape while maintaining gradients
-                                if features.dim() == 0:  # Scalar case
-                                    features = features.unsqueeze(0).repeat(768)
-                                elif features.shape[0] != 768:
-                                    # Pad or truncate to 768 dimensions
-                                    if features.shape[0] < 768:
-                                        padding = torch.zeros(768 - features.shape[0], device=self.device, requires_grad=True)
-                                        features = torch.cat([features, padding])
-                                    else:
-                                        features = features[:768]
-                                
-                                audio_features_list.append(features)
-                            else:
-                                # Fallback: create dummy features with gradients
-                                features = torch.randn(768, device=self.device, requires_grad=True)
-                                audio_features_list.append(features)
-                        except Exception as e:
-                            logging.warning(f"Wav2Vec2 processing failed for sample {i}: {e}")
-                            # Fallback: create dummy features with gradients
-                            features = torch.randn(768, device=self.device, requires_grad=True)
-                            audio_features_list.append(features)
-                    
-                    # Stack the features properly for gradient flow
-                    if audio_features_list:
-                        # Stack tensors while preserving gradients
-                        audio_features = torch.stack(audio_features_list, dim=0)
-                    else:
-                        # No audio features extracted, create dummy with gradients
-                        batch_size = audio_inputs.shape[0] if hasattr(audio_inputs, 'shape') else 1
-                        audio_features = torch.randn(batch_size, 768, device=self.device, requires_grad=True)
-                
-                audio_logits = self.audio_model.forward(audio_features)
+                # The audio model's forward pass handles processing the list of raw waveforms
+                audio_logits = self.audio_model(raw_audio)
                 audio_probs = torch.softmax(audio_logits, dim=-1)
             else:
-                # Fallback dummy prediction with proper gradient handling
-                batch_size = len(audio_inputs) if isinstance(audio_inputs, list) else audio_inputs.shape[0]
-                audio_probs = torch.ones(batch_size, self.num_classes, device=self.device, requires_grad=True) / self.num_classes
+                batch_size = len(raw_audio)
+                audio_probs = torch.ones(batch_size, self.num_classes, device=self.device) / self.num_classes
             
             modality_outputs.append(audio_probs)
             modality_names.append('audio')
         
         # Process visual modality
-        if visual_inputs is not None:
-            if hasattr(self.visual_model, 'vit'):
-                # Use ViT for image processing
-                if isinstance(visual_inputs, list):
-                    # If visual_inputs is a list of PIL Images
-                    visual_logits = self.visual_model.forward(visual_inputs)
-                else:
-                    # If visual_inputs is already a tensor [batch_size, channels, height, width]
-                    # Convert tensor to list of PIL Images for ViT processing
-                    from PIL import Image
-                    import torchvision.transforms as transforms
-                    
-                    visual_images = []
-                    # Convert tensor to PIL Images
-                    for i in range(visual_inputs.shape[0]):
-                        img_tensor = visual_inputs[i]  # Shape: [3, 224, 224]
-                        # Convert to PIL Image
-                        transform = transforms.ToPILImage()
-                        pil_img = transform(img_tensor.cpu())
-                        visual_images.append(pil_img)
-                    
-                    visual_logits = self.visual_model.forward(visual_images)
+        if raw_images is not None:
+            if self.visual_model.use_vit:
+                # The visual model's forward pass handles processing the list of PIL images
+                visual_logits = self.visual_model(raw_images)
                 visual_probs = torch.softmax(visual_logits, dim=-1)
             else:
-                # Fallback dummy prediction
-                batch_size = len(visual_inputs) if isinstance(visual_inputs, list) else visual_inputs.shape[0]
+                batch_size = len(raw_images)
                 visual_probs = torch.ones(batch_size, self.num_classes, device=self.device) / self.num_classes
             
             modality_outputs.append(visual_probs)
@@ -223,7 +136,6 @@ class EndToEndMultiModalModel(nn.Module):
             raise ValueError("At least one modality input must be provided")
         
         # Stack modality outputs for attention
-        # Shape: [batch_size, num_modalities, num_classes]
         modality_stack = torch.stack(modality_outputs, dim=1)
         
         # Apply attention mechanism
@@ -232,7 +144,6 @@ class EndToEndMultiModalModel(nn.Module):
         )
         
         # Flatten for fusion layer
-        # Shape: [batch_size, num_modalities * num_classes]
         fusion_input = attended_features.flatten(start_dim=1)
         
         # Final prediction through fusion layer
@@ -241,10 +152,7 @@ class EndToEndMultiModalModel(nn.Module):
         if return_attention:
             return final_output, attention_weights
         return final_output
-    
-    @property
-    def device(self):
-        return next(self.parameters()).device
+ 
 
 class EndToEndTrainer:
     """
@@ -304,47 +212,19 @@ class EndToEndTrainer:
         
         for batch_idx, batch in enumerate(train_loader):
             try:
-                # Prepare inputs for different modalities
-                text_inputs = None
-                text_attention_mask = None
-                audio_inputs = None
-                visual_inputs = None
-                
-                # Extract text data
-                if 'texts' in batch and batch['texts'] is not None:
-                    if hasattr(self.model.text_model, 'tokenizer'):
-                        # Tokenize text
-                        text_data = batch['texts']
-                        if isinstance(text_data, list):
-                            encoded = self.model.text_model.tokenizer(
-                                text_data,
-                                padding=True,
-                                truncation=True,
-                                return_tensors='pt',
-                                max_length=512
-                            )
-                            text_inputs = encoded['input_ids'].to(self.device)
-                            text_attention_mask = encoded['attention_mask'].to(self.device)
-                
-                # Extract audio data 
-                if 'audios' in batch and batch['audios'] is not None:
-                    audio_inputs = batch['audios']  # Tensor of audio data
-                
-                # Extract visual data
-                if 'images' in batch and batch['images'] is not None:
-                    visual_inputs = batch['images']  # Tensor of image data
-                
-                # Get labels
+                # Data is already in raw format from the collate function
+                texts = batch['texts']
+                raw_audio = batch['audios']
+                raw_images = batch['images']
                 labels = batch['labels'].to(self.device)
                 
                 # Forward pass
                 self.optimizer.zero_grad()
                 
                 outputs = self.model(
-                    text_inputs=text_inputs,
-                    audio_inputs=audio_inputs, 
-                    visual_inputs=visual_inputs,
-                    text_attention_mask=text_attention_mask
+                    texts=texts,
+                    raw_audio=raw_audio, 
+                    raw_images=raw_images
                 )
                 
                 loss = self.criterion(outputs, labels)
@@ -372,6 +252,7 @@ class EndToEndTrainer:
             except Exception as e:
                 logger.error(f"Error in batch {batch_idx}: {e}")
                 continue
+            
         
         epoch_loss = total_loss / len(train_loader)
         epoch_acc = 100. * correct / total
@@ -393,44 +274,17 @@ class EndToEndTrainer:
         with torch.no_grad():
             for batch_idx, batch in enumerate(val_loader):
                 try:
-                    # Prepare inputs (same as training)
-                    text_inputs = None
-                    text_attention_mask = None
-                    audio_inputs = None
-                    visual_inputs = None
-                    
-                    # Extract text data
-                    if 'texts' in batch and batch['texts'] is not None:
-                        if hasattr(self.model.text_model, 'tokenizer'):
-                            text_data = batch['texts']
-                            if isinstance(text_data, list):
-                                encoded = self.model.text_model.tokenizer(
-                                    text_data,
-                                    padding=True,
-                                    truncation=True,
-                                    return_tensors='pt',
-                                    max_length=512
-                                )
-                                text_inputs = encoded['input_ids'].to(self.device)
-                                text_attention_mask = encoded['attention_mask'].to(self.device)
-                    
-                    # Extract audio data
-                    if 'audios' in batch and batch['audios'] is not None:
-                        audio_inputs = batch['audios']
-                    
-                    # Extract visual data  
-                    if 'images' in batch and batch['images'] is not None:
-                        visual_inputs = batch['images']
-                    
-                    # Get labels
+                    # Data is already in raw format from the collate function
+                    texts = batch['texts']
+                    raw_audio = batch['audios']
+                    raw_images = batch['images']
                     labels = batch['labels'].to(self.device)
                     
                     # Forward pass
                     outputs = self.model(
-                        text_inputs=text_inputs,
-                        audio_inputs=audio_inputs,
-                        visual_inputs=visual_inputs, 
-                        text_attention_mask=text_attention_mask
+                        texts=texts,
+                        raw_audio=raw_audio,
+                        raw_images=raw_images
                     )
                     
                     loss = self.criterion(outputs, labels)

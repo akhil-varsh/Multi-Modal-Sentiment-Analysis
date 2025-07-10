@@ -86,26 +86,25 @@ class AudioEmotionDataset(Dataset):
         audio_path = self.audio_dir / filename
         if audio_path.exists():
             try:
-                # Load audio with librosa
-                audio, sr = librosa.load(str(audio_path), sr=16000)
-                # Convert to tensor and pad/truncate to fixed length (3 seconds)
-                target_length = 3 * sr  # 3 seconds
+                # Load audio with librosa, return raw numpy array
+                audio, _ = librosa.load(str(audio_path), sr=16000)
+                # Pad/truncate to fixed length (3 seconds)
+                target_length = 3 * 16000  # 3 seconds
                 if len(audio) > target_length:
                     audio = audio[:target_length]
                 else:
                     audio = np.pad(audio, (0, target_length - len(audio)), mode='constant')
-                audio_tensor = torch.FloatTensor(audio)
             except Exception as e:
                 logging.warning(f"Error loading audio {audio_path}: {e}")
                 # Create dummy audio if loading fails
-                audio_tensor = torch.randn(3 * 16000)
+                audio = np.zeros(3 * 16000, dtype=np.float32)
         else:
             logging.warning(f"Audio file not found: {audio_path}")
             # Create dummy audio if file missing
-            audio_tensor = torch.randn(3 * 16000)
+            audio = np.zeros(3 * 16000, dtype=np.float32)
         
         return {
-            'audio': audio_tensor,
+            'audio': audio,
             'emotion': emotion,
             'label': torch.tensor(sentiment, dtype=torch.long),
             'sample_id': f"audio_{filename}"
@@ -172,29 +171,19 @@ class ImageEmotionDataset(Dataset):
         
         if image_path and image_path.exists():
             try:
-                # Load image
+                # Load image as PIL object
                 image = Image.open(image_path).convert('RGB')
-                # Convert to tensor (simple conversion, could be improved with transforms)
-                image = np.array(image)
-                if len(image.shape) == 2:  # Grayscale
-                    image = np.stack([image] * 3, axis=-1)  # Convert to RGB
-                # Resize to standard size
-                image = cv2.resize(image, (224, 224))
-                # Normalize to [0, 1]
-                image = image.astype(np.float32) / 255.0
-                # Convert to tensor (C, H, W)
-                image_tensor = torch.FloatTensor(image).permute(2, 0, 1)
             except Exception as e:
                 logging.warning(f"Error loading image {image_path}: {e}")
                 # Create dummy image if loading fails
-                image_tensor = torch.randn(3, 224, 224)
+                image = Image.new('RGB', (224, 224), color='black')
         else:
             logging.warning(f"Image file not found: {filename}")
             # Create dummy image if file missing
-            image_tensor = torch.randn(3, 224, 224)
+            image = Image.new('RGB', (224, 224), color='black')
         
         return {
-            'image': image_tensor,
+            'image': image,
             'emotion': emotion,
             'label': torch.tensor(sentiment, dtype=torch.long),
             'sample_id': f"image_{filename}"
@@ -240,30 +229,30 @@ class MultiModalRealDataset(Dataset):
         if modality == 'text':
             sample = self.text_dataset[mod_idx]
             return {
-                'text': sample['text'],
-                'audio': torch.zeros(3 * 16000),  # Dummy audio
-                'image': torch.zeros(3, 224, 224),  # Dummy image
-                'label': sample['label'],
+                'texts': sample['text'],
+                'audios': np.zeros(3 * 16000, dtype=np.float32),  # Dummy audio
+                'images': Image.new('RGB', (224, 224)),  # Dummy image
+                'labels': sample['label'],
                 'modality': 'text',
                 'sample_id': sample['sample_id']
             }
         elif modality == 'audio':
             sample = self.audio_dataset[mod_idx]
             return {
-                'text': "",  # Empty text
-                'audio': sample['audio'],
-                'image': torch.zeros(3, 224, 224),  # Dummy image
-                'label': sample['label'],
+                'texts': "",  # Empty text
+                'audios': sample['audio'],
+                'images': Image.new('RGB', (224, 224)),  # Dummy image
+                'labels': sample['label'],
                 'modality': 'audio',
                 'sample_id': sample['sample_id']
             }
         elif modality == 'image':
             sample = self.image_dataset[mod_idx]
             return {
-                'text': "",  # Empty text
-                'audio': torch.zeros(3 * 16000),  # Dummy audio
-                'image': sample['image'],
-                'label': sample['label'],
+                'texts': "",  # Empty text
+                'audios': np.zeros(3 * 16000, dtype=np.float32),  # Dummy audio
+                'images': sample['image'],
+                'labels': sample['label'],
                 'modality': 'image',
                 'sample_id': sample['sample_id']
             }
@@ -301,15 +290,43 @@ def create_real_data_loaders(data_config, batch_size=8, balance_modalities=True,
     val_dataset = torch.utils.data.Subset(dataset, val_indices)
     test_dataset = torch.utils.data.Subset(dataset, test_indices)
     
+    # Custom collate function to handle different data types
+    def multimodal_collate_fn(batch):
+        texts = [item['texts'] for item in batch]
+        audios = [item['audios'] for item in batch]  # List of numpy arrays
+        images = [item['images'] for item in batch]  # List of PIL Images
+        labels = torch.stack([item['labels'] for item in batch])
+        modalities = [item['modality'] for item in batch]
+        sample_ids = [item['sample_id'] for item in batch]
+        
+        return {
+            'texts': texts,
+            'audios': audios,
+            'images': images,
+            'labels': labels,
+            'modalities': modalities,
+            'sample_ids': sample_ids
+        }
+
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=multimodal_collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=multimodal_collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=multimodal_collate_fn)
-    
-    logging.info(f"📊 Data loaders created:")
-    logging.info(f"   Train: {len(train_loader)} batches ({len(train_dataset)} samples)")
-    logging.info(f"   Val: {len(val_loader)} batches ({len(val_dataset)} samples)")
-    logging.info(f"   Test: {len(test_loader)} batches ({len(test_dataset)} samples)")
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        collate_fn=multimodal_collate_fn
+    )
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        collate_fn=multimodal_collate_fn
+    )
+    test_loader = DataLoader(
+        test_dataset, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        collate_fn=multimodal_collate_fn
+    )
     
     return train_loader, val_loader, test_loader
 
