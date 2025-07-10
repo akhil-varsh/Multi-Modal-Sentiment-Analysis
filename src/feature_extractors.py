@@ -13,20 +13,31 @@ from transformers import (
 import numpy as np
 from typing import List, Dict
 import logging
+from pathlib import Path
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load .env file from project root
+    env_path = Path(__file__).parent.parent / '.env'
+    load_dotenv(env_path)
+    print(f"Loading .env from: {env_path}")
+except ImportError:
+    print("python-dotenv not installed. Install with: pip install python-dotenv")
 
 # Check for HuggingFace token
-HF_TOKEN = ""
+HF_TOKEN = os.getenv('HF_TOKEN', '')
 if HF_TOKEN:
-    print(f"HuggingFace token found in environment")
+    print(f"✅ HuggingFace token found in environment")
     # Optionally login explicitly
     try:
         from huggingface_hub import login
         login(token=HF_TOKEN)
-        print("HuggingFace login successful")
+        print("✅ HuggingFace login successful")
     except Exception as e:
-        print(f"HuggingFace login failed: {e}")
+        print(f"❌ HuggingFace login failed: {e}")
 else:
-    print("No HuggingFace token found in environment variables")
+    print("⚠️ No HuggingFace token found in environment variables")
 
 class TextSentimentModel(nn.Module):
     """
