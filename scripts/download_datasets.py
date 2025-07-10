@@ -125,7 +125,7 @@ class DatasetDownloader:
             return self._create_sample_sst2(sst2_dir)
         
         # Hugging Face token for authentication
-        token = "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"
+        token = "YOUR_HF_TOKEN"
         
         try:
             print("📥 Downloading SST-2 from Hugging Face...")

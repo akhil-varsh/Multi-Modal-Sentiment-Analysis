@@ -17,24 +17,23 @@ A ready-to-use system for analyzing sentiment from text, audio, and visual data 
 pip install -r requirements.txt
 ```
 
-### 2. Test Wav2Vec2 Integration
+### 2. Run Demo
 ```bash
-python tests/test_wav2vec2_integration.py
+python demo.py
 ```
 
-### 3. Run Comprehensive Demo
+### 3. Interactive Analysis
 ```bash
-python tests/wav2vec2_demo.py
+python predict_sentiment.py --interactive
 ```
 
-### 4. Interactive Web Interface
+### 4. Command Line Usage
 ```bash
-streamlit run app/streamlit_app.py
-```
+# Text only
+python predict_sentiment.py --text "I love this product!"
 
-### 5. Command Line Interface
-```bash
-python app/enhanced_predict.py --interactive
+# Multi-modal (with dummy audio/visual for now)
+python predict_sentiment.py --text "Great movie!" --audio "audio.wav" --image "image.jpg"
 ```
 
 ## 🏗️ Project Structure
@@ -76,15 +75,8 @@ Multi Modal-Sentiment Analysis/
 
 ### Individual Modality Models
 - **Text Analysis**: RoBERTa-based sentiment classification
-- **Audio Analysis**: **Wav2Vec2** feature extraction with sentiment classification head
+- **Audio Analysis**: Wav2Vec2 feature extraction and processing
 - **Visual Analysis**: Vision Transformer (ViT) for image sentiment
-
-#### Audio Processing with Wav2Vec2
-The system uses Facebook's Wav2Vec2 model for sophisticated audio feature extraction:
-- **Model**: `facebook/wav2vec2-base-960h` (768-dimensional features)
-- **Fallback**: MFCC features if Wav2Vec2 unavailable
-- **Processing**: Automatic resampling to 16kHz, 30-second clips
-- **Classification**: Custom neural network head for sentiment prediction
 
 ### Fusion Network
 - **Attention Mechanism**: Learns to weight modalities dynamically
@@ -106,22 +98,15 @@ The system uses Facebook's Wav2Vec2 model for sophisticated audio feature extrac
 ## 📊 Dataset
 
 The system works with multimodal datasets containing:
-- **Text**: Sentiment-bearing text content (SST-2 dataset)
-- **Audio**: Speech or audio files with emotional content (EMO-DB dataset)
-- **Visual**: Images with facial expressions (FER-2013 dataset)
+- **Text**: Sentiment-bearing text content
+- **Audio**: Speech or audio features (768-dim from Wav2Vec2)
+- **Visual**: Image features (768-dim from ViT)
 - **Labels**: Sentiment labels (-1: negative, 0: neutral, 1: positive)
 
 ### Supported Datasets
-- **SST-2**: Stanford Sentiment Treebank for text sentiment
-- **EMO-DB**: Berlin Database of Emotional Speech for audio
-- **FER-2013**: Facial Expression Recognition dataset for visual sentiment
+- **Sample Dataset**: 10 samples for development (included)
+- **CMU-MOSI**: Academic multimodal sentiment dataset
 - **Custom Datasets**: Create your own using provided tools
-
-### Audio Processing Features
-- **Wav2Vec2 Integration**: State-of-the-art audio feature extraction
-- **Automatic Fallback**: MFCC features when Wav2Vec2 unavailable
-- **Real-time Processing**: Optimized for live audio input
-- **Format Support**: WAV, MP3, and other common audio formats
 
 ## 🛠️ Installation
 
