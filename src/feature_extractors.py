@@ -108,9 +108,8 @@ class AudioSentimentModel(nn.Module):
     Audio sentiment analysis using Wav2Vec2 for feature extraction
     Supports end-to-end fine-tuning
     """
-    def __init__(self, num_classes=3, freeze_wav2vec2=False, sr=16000):
+    def __init__(self, num_classes=3, freeze_wav2vec2=False):
         super().__init__()
-        self.sr = sr
         try:
             print("Loading Wav2Vec2 model...")
             from transformers import Wav2Vec2Model, Wav2Vec2Processor
@@ -163,42 +162,42 @@ class AudioSentimentModel(nn.Module):
     
     def forward(self, audio_input):
         """
-        Forward pass for audio sentiment classification.
-        The entire preprocessing pipeline is encapsulated here to ensure
-        correct gradient flow during end-to-end training.
+        Forward pass for audio sentiment classification
         
         Args:
-            audio_input: A list of raw audio waveforms (numpy arrays) or a pre-padded tensor.
+            audio_input: Either raw audio waveform (if Wav2Vec2) or pre-extracted features
         """
         if self.use_wav2vec2 and hasattr(self, 'wav2vec2'):
-            device = next(self.wav2vec2.parameters()).device
-
-            # The processor handles padding, normalization, and conversion to tensors.
-            processed_inputs = self.processor(
-                audio_input, 
-                sampling_rate=self.sr, 
-                return_tensors="pt", 
-                padding=True
-            ).to(device)
-
-            # Extract features using Wav2Vec2
-            wav2vec2_outputs = self.wav2vec2(processed_inputs.input_values)
+            # Use Wav2Vec2 for feature extraction
+            if audio_input.dim() == 1:
+                audio_input = audio_input.unsqueeze(0)  # Add batch dimension
+            
+            # Extract features using Wav2Vec2 (allows gradients for fine-tuning)
+            wav2vec2_outputs = self.wav2vec2(audio_input)
+            # Use mean pooling over sequence dimension
             audio_features = wav2vec2_outputs.last_hidden_state.mean(dim=1)
             
+            # Classify sentiment
             return self.classifier(audio_features)
         else:
             # Fallback: use pre-extracted features
             return self.classifier(audio_input)
     
-    def extract_features_from_audio(self, audio_path: str) -> torch.Tensor:
+    def extract_features_from_audio(self, audio_path: str, sr: int = 16000) -> torch.Tensor:
         """
-        Extracts features from a single audio file for inference.
-        Note: For training, the forward pass should be used with raw audio data.
+        Extract Wav2Vec2 features from audio file
+        
+        Args:
+            audio_path: Path to audio file
+            sr: Sample rate (Wav2Vec2 expects 16kHz)
+        
+        Returns:
+            Audio features tensor
         """
         if not self.use_wav2vec2:
             # Fallback to MFCC features
             import librosa
-            audio, _ = librosa.load(audio_path, sr=self.sr, duration=30)
+            audio, _ = librosa.load(audio_path, sr=sr, duration=30)
             
             # Extract MFCC features
             mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
@@ -226,12 +225,12 @@ class AudioSentimentModel(nn.Module):
         else:
             # Use Wav2Vec2 processor
             import librosa
-            audio, _ = librosa.load(audio_path, sr=self.sr, duration=30)
+            audio, _ = librosa.load(audio_path, sr=sr, duration=30)
             
             # Process audio for Wav2Vec2
             inputs = self.processor(
                 audio, 
-                sampling_rate=self.sr, 
+                sampling_rate=sr, 
                 return_tensors="pt", 
                 padding=True
             )
@@ -291,35 +290,27 @@ class VisualSentimentModel(nn.Module):
     
     def forward(self, visual_input):
         """
-        Forward pass for visual sentiment classification.
-        The entire preprocessing pipeline is encapsulated here to ensure
-        correct gradient flow during end-to-end training.
+        Forward pass for visual sentiment classification
         
         Args:
-            visual_input: A list of PIL Images.
+            visual_input: Either processed pixel values or PIL Images
         """
         if self.use_vit and hasattr(self, 'vit'):
-            device = next(self.vit.parameters()).device
-
-            # The processor handles conversion from PIL images to tensors,
-            # including resizing and normalization.
-            inputs = self.processor(images=visual_input, return_tensors="pt").to(device)
-            pixel_values = inputs['pixel_values']
+            if isinstance(visual_input, list):
+                # Process PIL Images
+                inputs = self.processor(visual_input, return_tensors="pt")
+                pixel_values = inputs['pixel_values']
+            else:
+                # Already processed pixel values
+                pixel_values = visual_input
             
-            # Extract features using ViT
+            # Extract features using ViT (allows gradients for fine-tuning)
             outputs = self.vit(pixel_values=pixel_values)
             pooled = outputs.last_hidden_state[:, 0]  # CLS token
             return self.classifier(pooled)
         else:
-            # Fallback: use dummy features or handle tensor input
-            if isinstance(visual_input, torch.Tensor) and visual_input.dim() == 2:
-                # Already features
-                return self.classifier(visual_input)
-            else:
-                # Create dummy features
-                batch_size = len(visual_input)
-                dummy_features = torch.randn(batch_size, 768)
-                return self.classifier(dummy_features)
+            # Fallback: use dummy features
+            return self.classifier(visual_input)
 
 
 class MultiModalSentimentSystem(nn.Module):
@@ -345,7 +336,7 @@ class MultiModalSentimentSystem(nn.Module):
         
         logging.info("MultiModal Sentiment System initialized")
     
-    def forward(self, texts=None, raw_audio=None, raw_images=None, text_inputs=None):
+    def forward(self, text_inputs=None, audio_features=None, visual_features=None, texts=None):
         # Handle both tokenized inputs and raw texts
         if text_inputs is not None:
             # Pre-tokenized inputs
@@ -356,17 +347,15 @@ class MultiModalSentimentSystem(nn.Module):
                 texts, truncation=True, padding=True, 
                 return_tensors='pt', max_length=512
             )
-            device = next(self.text_model.parameters()).device
-            encoded = {k: v.to(device) for k, v in encoded.items()}
             text_logits = self.text_model(encoded['input_ids'], encoded['attention_mask'])
         else:
             # Fallback to dummy
-            batch_size = len(texts) if texts else len(raw_audio)
+            batch_size = len(texts) if texts else audio_features.size(0)
             text_logits = self.text_model(text_features=torch.randn(batch_size, 768))
         
-        # Get other modality predictions by passing raw data
-        audio_logits = self.audio_model(raw_audio)
-        visual_logits = self.visual_model(raw_images)
+        # Get other modality predictions
+        audio_logits = self.audio_model(audio_features)
+        visual_logits = self.visual_model(visual_features)
         
         # Concatenate logits for fusion
         combined = torch.cat([text_logits, audio_logits, visual_logits], dim=1)
@@ -381,21 +370,18 @@ class MultiModalSentimentSystem(nn.Module):
             'visual_logits': visual_logits
         }
     
-    def predict(self, texts: List[str], audio_data: List = None, image_data: List = None):
-        """End-to-end prediction with raw data"""
+    def predict(self, texts: List[str], audio_features=None, visual_features=None):
+        """End-to-end prediction"""
         batch_size = len(texts)
         
-        # Use dummy data if not provided
-        if audio_data is None:
-            # Dummy raw audio waveform (1 second at 16kHz)
-            audio_data = [np.random.randn(16000) for _ in range(batch_size)]
-        if image_data is None:
-            from PIL import Image
-            # Dummy PIL image
-            image_data = [Image.new('RGB', (224, 224), color='red') for _ in range(batch_size)]
+        # Use dummy features if not provided
+        if audio_features is None:
+            audio_features = torch.randn(batch_size, 768)
+        if visual_features is None:
+            visual_features = torch.randn(batch_size, 768)
         
         with torch.no_grad():
-            outputs = self.forward(texts=texts, raw_audio=audio_data, raw_images=image_data)
+            outputs = self.forward(texts=texts, audio_features=audio_features, visual_features=visual_features)
             
             # Get final predictions
             probabilities = torch.softmax(outputs['final_logits'], dim=-1)
@@ -417,8 +403,9 @@ class MultiModalSentimentSystem(nn.Module):
 
 
 if __name__ == "__main__":
-    # Test the refactored system
-    print("🧪 Testing Refactored Multimodal System...")
+    # Test the system
+    print("🧪 Testing Multimodal System with HF Token...")
+    print(f"Token status: {'✅ Found' if HF_TOKEN else '❌ Not found'}")
     
     # Sample data
     test_texts = [
@@ -431,19 +418,18 @@ if __name__ == "__main__":
     try:
         system = MultiModalSentimentSystem()
         
-        # The predict method now handles dummy data creation internally if not provided
+        # Make predictions
         results = system.predict(test_texts)
         
-        print("\n📊 Prediction Results (with dummy audio/visual):")
+        print("\n📊 Prediction Results:")
         for i, text in enumerate(test_texts):
             print(f"Text: '{text}'")
-            print(f"  - Predicted Sentiment: {results['sentiments'][i]}")
-            print(f"  - Confidence: {torch.max(results['probabilities'][i]).item():.3f}")
+            print(f"Sentiment: {results['sentiments'][i]}")
+            print(f"Confidence: {torch.max(results['probabilities'][i]).item():.3f}")
             print("-" * 40)
         
-        print("✅ System test complete!")
+        print("✅ System working with your HF token!")
         
     except Exception as e:
-        import traceback
-        print(f"❌ Error during testing: {e}")
-        traceback.print_exc()
+        print(f"❌ Error: {e}")
+        print("💡 Check if your HF token has proper permissions")
