@@ -15,7 +15,7 @@ from typing import List, Dict
 import logging
 
 # Check for HuggingFace token
-HF_TOKEN = "YOUR_HF_TOKEN"
+HF_TOKEN = "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"
 if HF_TOKEN:
     print(f"HuggingFace token found in environment")
     # Optionally login explicitly
@@ -31,8 +31,9 @@ else:
 class TextSentimentModel(nn.Module):
     """
     Text sentiment analysis using fine-tuned RoBERTa
+    Supports end-to-end fine-tuning
     """
-    def __init__(self, num_labels=3):
+    def __init__(self, num_labels=3, freeze_roberta=False):
         super().__init__()
         try:
             print("Loading RoBERTa model...")
@@ -45,7 +46,14 @@ class TextSentimentModel(nn.Module):
                 'roberta-base',
                 token=HF_TOKEN if HF_TOKEN else None  # Use 'token' instead of 'use_auth_token'
             )
+            
+            # Optionally freeze RoBERTa parameters  
+            if freeze_roberta:
+                for param in self.roberta.parameters():
+                    param.requires_grad = False
+            
             self.model_loaded = True
+            self.num_labels = num_labels
             print("RoBERTa loaded successfully")
         except Exception as e:
             print(f"Failed to load RoBERTa: {e}")
@@ -97,29 +105,151 @@ class TextSentimentModel(nn.Module):
 
 class AudioSentimentModel(nn.Module):
     """
-    Audio sentiment analysis - simplified without librosa dependency
+    Audio sentiment analysis using Wav2Vec2 for feature extraction
+    Supports end-to-end fine-tuning
     """
-    def __init__(self):
+    def __init__(self, num_classes=3, freeze_wav2vec2=False):
         super().__init__()
-        # Simplified audio processing without Wav2Vec2 for now
-        self.classifier = nn.Sequential(
-            nn.Linear(768, 256),  # Assume 768-dim input features
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 64),
-            nn.ReLU(),
-            nn.Linear(64, 3)
-        )
+        try:
+            print("Loading Wav2Vec2 model...")
+            from transformers import Wav2Vec2Model, Wav2Vec2Processor
+            
+            # Load pre-trained Wav2Vec2 model
+            self.wav2vec2 = Wav2Vec2Model.from_pretrained(
+                'facebook/wav2vec2-base-960h',
+                token=HF_TOKEN if HF_TOKEN else None
+            )
+            self.processor = Wav2Vec2Processor.from_pretrained(
+                'facebook/wav2vec2-base-960h',
+                token=HF_TOKEN if HF_TOKEN else None
+            )
+            
+            # Optionally freeze Wav2Vec2 parameters
+            if freeze_wav2vec2:
+                for param in self.wav2vec2.parameters():
+                    param.requires_grad = False
+            
+            # Classification head for sentiment
+            self.classifier = nn.Sequential(
+                nn.Linear(768, 256),  # Wav2Vec2 outputs 768-dim features
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, num_classes)  # negative, neutral, positive
+            )
+            
+            self.use_wav2vec2 = True
+            self.num_classes = num_classes
+            print("✅ Wav2Vec2 model loaded successfully")
+            
+        except Exception as e:
+            print(f"⚠️ Wav2Vec2 not available: {e}")
+            print("Using simplified audio processing")
+            
+            # Fallback: simplified audio processing
+            self.classifier = nn.Sequential(
+                nn.Linear(768, 256),  # Assume 768-dim input features
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 64),
+                nn.ReLU(),
+                nn.Linear(64, num_classes)
+            )
+            self.use_wav2vec2 = False
+            self.num_classes = num_classes
     
-    def forward(self, audio_features):
-        return self.classifier(audio_features)
+    def forward(self, audio_input):
+        """
+        Forward pass for audio sentiment classification
+        
+        Args:
+            audio_input: Either raw audio waveform (if Wav2Vec2) or pre-extracted features
+        """
+        if self.use_wav2vec2 and hasattr(self, 'wav2vec2'):
+            # Use Wav2Vec2 for feature extraction
+            if audio_input.dim() == 1:
+                audio_input = audio_input.unsqueeze(0)  # Add batch dimension
+            
+            # Extract features using Wav2Vec2 (allows gradients for fine-tuning)
+            wav2vec2_outputs = self.wav2vec2(audio_input)
+            # Use mean pooling over sequence dimension
+            audio_features = wav2vec2_outputs.last_hidden_state.mean(dim=1)
+            
+            # Classify sentiment
+            return self.classifier(audio_features)
+        else:
+            # Fallback: use pre-extracted features
+            return self.classifier(audio_input)
+    
+    def extract_features_from_audio(self, audio_path: str, sr: int = 16000) -> torch.Tensor:
+        """
+        Extract Wav2Vec2 features from audio file
+        
+        Args:
+            audio_path: Path to audio file
+            sr: Sample rate (Wav2Vec2 expects 16kHz)
+        
+        Returns:
+            Audio features tensor
+        """
+        if not self.use_wav2vec2:
+            # Fallback to MFCC features
+            import librosa
+            audio, _ = librosa.load(audio_path, sr=sr, duration=30)
+            
+            # Extract MFCC features
+            mfccs = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=13)
+            spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sr)
+            zero_crossing_rate = librosa.feature.zero_crossing_rate(audio)
+            
+            # Combine features into a vector
+            feature_vector = np.concatenate([
+                np.mean(mfccs, axis=1),  # 13 MFCC features
+                np.std(mfccs, axis=1),   # 13 MFCC std features
+                [np.mean(spectral_centroids)],  # 1 spectral centroid
+                [np.std(spectral_centroids)],   # 1 spectral centroid std
+                [np.mean(zero_crossing_rate)],  # 1 ZCR
+                [np.std(zero_crossing_rate)],   # 1 ZCR std
+            ])
+            
+            # Pad or truncate to 768 dimensions
+            if len(feature_vector) < 768:
+                feature_vector = np.pad(feature_vector, (0, 768 - len(feature_vector)), 'constant')
+            else:
+                feature_vector = feature_vector[:768]
+            
+            return torch.FloatTensor(feature_vector)
+        
+        else:
+            # Use Wav2Vec2 processor
+            import librosa
+            audio, _ = librosa.load(audio_path, sr=sr, duration=30)
+            
+            # Process audio for Wav2Vec2
+            inputs = self.processor(
+                audio, 
+                sampling_rate=sr, 
+                return_tensors="pt", 
+                padding=True
+            )
+            
+            # Extract features
+            with torch.no_grad():
+                outputs = self.wav2vec2(inputs.input_values)
+                # Mean pooling over time dimension
+                features = outputs.last_hidden_state.mean(dim=1).squeeze()
+            
+            return features
 
 
 class VisualSentimentModel(nn.Module):
     """
     Visual sentiment analysis using ViT (with HuggingFace inference)
+    Supports end-to-end fine-tuning
     """
-    def __init__(self):
+    def __init__(self, num_classes=3, freeze_vit=False):
         super().__init__()
         try:
             print("Loading ViT model...")
@@ -131,34 +261,56 @@ class VisualSentimentModel(nn.Module):
                 'google/vit-base-patch16-224',
                 token=HF_TOKEN if HF_TOKEN else None
             )
+            
+            # Optionally freeze ViT parameters
+            if freeze_vit:
+                for param in self.vit.parameters():
+                    param.requires_grad = False
+            
             self.classifier = nn.Sequential(
                 nn.Linear(768, 256),
                 nn.ReLU(),
                 nn.Dropout(0.3),
-                nn.Linear(256, 3)
+                nn.Linear(256, num_classes)
             )
             self.use_vit = True
+            self.num_classes = num_classes
             print("ViT model loaded successfully")
         except Exception as e:
             print(f"ViT not available: {e}")
             print("Using dummy visual features")
             self.use_vit = False
+            self.num_classes = num_classes
             self.classifier = nn.Sequential(
                 nn.Linear(768, 256),
                 nn.ReLU(),
                 nn.Dropout(0.3),
-                nn.Linear(256, 3)
+                nn.Linear(256, num_classes)
             )
     
-    def forward(self, visual_features):
-        if self.use_vit and hasattr(self, 'pixel_values'):
-            # Real ViT processing
-            outputs = self.vit(pixel_values=visual_features)
+    def forward(self, visual_input):
+        """
+        Forward pass for visual sentiment classification
+        
+        Args:
+            visual_input: Either processed pixel values or PIL Images
+        """
+        if self.use_vit and hasattr(self, 'vit'):
+            if isinstance(visual_input, list):
+                # Process PIL Images
+                inputs = self.processor(visual_input, return_tensors="pt")
+                pixel_values = inputs['pixel_values']
+            else:
+                # Already processed pixel values
+                pixel_values = visual_input
+            
+            # Extract features using ViT (allows gradients for fine-tuning)
+            outputs = self.vit(pixel_values=pixel_values)
             pooled = outputs.last_hidden_state[:, 0]  # CLS token
             return self.classifier(pooled)
         else:
-            # Dummy processing
-            return self.classifier(visual_features)
+            # Fallback: use dummy features
+            return self.classifier(visual_input)
 
 
 class MultiModalSentimentSystem(nn.Module):
