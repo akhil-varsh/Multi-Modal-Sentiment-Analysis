@@ -15,7 +15,7 @@ from typing import List, Dict
 import logging
 
 # Check for HuggingFace token
-HF_TOKEN = "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"
+HF_TOKEN = ""
 if HF_TOKEN:
     print(f"HuggingFace token found in environment")
     # Optionally login explicitly
