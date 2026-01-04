@@ -1,0 +1,37 @@
+text,audio_path,image_path,label
+"I absolutely love this! It's the best thing ever!",my_audio/positive_01.wav,my_images/happy_face_01.jpg,2
+"This product exceeded all my expectations. Highly recommend!",my_audio/positive_02.wav,my_images/happy_face_02.jpg,2
+"I'm so grateful for this wonderful experience.",my_audio/positive_03.wav,my_images/happy_face_03.jpg,2
+"Amazing quality and service. Five stars!",my_audio/positive_04.wav,my_images/happy_face_04.jpg,2
+"Best purchase I've made this year!",my_audio/positive_05.wav,my_images/happy_face_05.jpg,2
+"I'm thrilled with the results. Couldn't be happier!",my_audio/positive_06.wav,my_images/happy_face_06.jpg,2
+"Fantastic! This brings me so much joy.",my_audio/positive_07.wav,my_images/happy_face_07.jpg,2
+"Outstanding performance. I'm impressed!",my_audio/positive_08.wav,my_images/happy_face_08.jpg,2
+"This is terrible. I'm very disappointed.",my_audio/negative_01.wav,my_images/sad_face_01.jpg,0
+"Worst experience ever. Would not recommend.",my_audio/negative_02.wav,my_images/sad_face_02.jpg,0
+"I hate how this turned out. Complete waste of money.",my_audio/negative_03.wav,my_images/sad_face_03.jpg,0
+"Very frustrating and annoying. Not happy at all.",my_audio/negative_04.wav,my_images/sad_face_04.jpg,0
+"Poor quality. I regret this purchase.",my_audio/negative_05.wav,my_images/sad_face_05.jpg,0
+"Absolutely awful. I'm so upset about this.",my_audio/negative_06.wav,my_images/sad_face_06.jpg,0
+"This is broken and useless. Very angry.",my_audio/negative_07.wav,my_images/sad_face_07.jpg,0
+"Horrible service. I'm extremely dissatisfied.",my_audio/negative_08.wav,my_images/sad_face_08.jpg,0
+"It's okay. Nothing special but it works.",my_audio/neutral_01.wav,my_images/neutral_face_01.jpg,1
+"Average product. Does what it's supposed to do.",my_audio/neutral_02.wav,my_images/neutral_face_02.jpg,1
+"Not bad, not great. Just fine.",my_audio/neutral_03.wav,my_images/neutral_face_03.jpg,1
+"It's acceptable. No complaints but nothing exciting.",my_audio/neutral_04.wav,my_images/neutral_face_04.jpg,1
+"Standard quality. What I expected.",my_audio/neutral_05.wav,my_images/neutral_face_05.jpg,1
+"Neutral feelings about this. It's adequate.",my_audio/neutral_06.wav,my_images/neutral_face_06.jpg,1
+"Decent enough. Meets basic requirements.",my_audio/neutral_07.wav,my_images/neutral_face_07.jpg,1
+"Mediocre but functional. No strong opinion.",my_audio/neutral_08.wav,my_images/neutral_face_08.jpg,1
+"Great job on this project! Well done team.",my_audio/positive_09.wav,my_images/happy_face_09.jpg,2
+"I'm so excited about the upcoming event!",my_audio/positive_10.wav,my_images/happy_face_10.jpg,2
+"This has been such a positive experience overall.",my_audio/positive_11.wav,my_images/happy_face_11.jpg,2
+"I really appreciate all the hard work put into this.",my_audio/positive_12.wav,my_images/happy_face_12.jpg,2
+"This is unacceptable. I demand a refund.",my_audio/negative_09.wav,my_images/sad_face_09.jpg,0
+"I'm really upset about how this was handled.",my_audio/negative_10.wav,my_images/sad_face_10.jpg,0
+"Disappointing results. Not what I paid for.",my_audio/negative_11.wav,my_images/sad_face_11.jpg,0
+"This is frustrating beyond words.",my_audio/negative_12.wav,my_images/sad_face_12.jpg,0
+"It's an average experience. Nothing to complain about.",my_audio/neutral_09.wav,my_images/neutral_face_09.jpg,1
+"Standard stuff. Exactly what I thought it would be.",my_audio/neutral_10.wav,my_images/neutral_face_10.jpg,1
+"Can't say I love it or hate it. Just okay.",my_audio/neutral_11.wav,my_images/neutral_face_11.jpg,1
+"Neutral on this matter. No strong feelings either way.",my_audio/neutral_12.wav,my_images/neutral_face_12.jpg,1

@@ -1,0 +1,10 @@
+text,audio_path,image_path,label
+"This exceeded my wildest dreams! Absolutely perfect!",my_audio/positive_val_01.wav,my_images/happy_face_val_01.jpg,2
+"I'm delighted with this outcome. Brilliant work!",my_audio/positive_val_02.wav,my_images/happy_face_val_02.jpg,2
+"Wonderful experience from start to finish!",my_audio/positive_val_03.wav,my_images/happy_face_val_03.jpg,2
+"This is dreadful. Completely unacceptable.",my_audio/negative_val_01.wav,my_images/sad_face_val_01.jpg,0
+"I'm furious about this situation. Very poor.",my_audio/negative_val_02.wav,my_images/sad_face_val_02.jpg,0
+"Terrible quality. I'm very unhappy.",my_audio/negative_val_03.wav,my_images/sad_face_val_03.jpg,0
+"It's satisfactory. Nothing more, nothing less.",my_audio/neutral_val_01.wav,my_images/neutral_face_val_01.jpg,1
+"Average at best. Meets minimum standards.",my_audio/neutral_val_02.wav,my_images/neutral_face_val_02.jpg,1
+"Fairly standard. No surprises here.",my_audio/neutral_val_03.wav,my_images/neutral_face_val_03.jpg,1

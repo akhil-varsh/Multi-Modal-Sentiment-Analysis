@@ -57,7 +57,7 @@ coverage.xml
 *.h5
 *.ckpt
 *.onnx
-models/
+/models/
 logs/
 results/
 
