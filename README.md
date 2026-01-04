@@ -2,6 +2,8 @@
 
 > **Complete end-to-end pipeline for understanding human emotions through Text, Audio, and Visual inputs**
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://multi-modal-sentiment-analysis.streamlit.app/)
+
 A production-ready system with **Attention-Based Fusion** for Human-Robot Interaction applications.
 
 ## ✨ Key Features
@@ -60,10 +62,12 @@ This will:
 - Save best model to `models/best_model.pt`
 - Save training history to `models/training_history.json`
 
-### 3. Launch Web App
+### 3. Launch Web App (Local)
 ```bash
 streamlit run app.py
 ```
+
+**🌐 Live Demo:** [multi-modal-sentiment-analysis.streamlit.app](https://multi-modal-sentiment-analysis.streamlit.app/)
 
 The app has 3 pages:
 - **🔮 Prediction** - Analyze sentiment from multimodal inputs
@@ -74,6 +78,16 @@ The app has 3 pages:
 ```bash
 python test_new_architecture.py
 ```
+
+### 5. Deploy with Docker (Production)
+```bash
+# Build and run with Docker Compose
+docker-compose up -d
+
+# Access at http://localhost:8501
+```
+
+See [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) for detailed deployment guide.
 
 ## 📊 Complete Pipeline
 
